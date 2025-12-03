@@ -2,23 +2,16 @@ import MetaTrader5 as mt5
 import pandas as pd
 import time
 from datetime import datetime
+import talib
 
 # ================= 🏆 趋势顺势策略 V3.0 =================
 SYMBOL = "XAUUSDm"          # 【请核对品种名称】
 TIMEFRAME = mt5.TIMEFRAME_M5
 
 # 交易参数
-ATR_MULTIPLIER = 1.2        # 止损系数
 RR_RATIO = 2.0              # 盈亏比 (顺势交易胜率高，盈亏比可稍微保守一点，或者设为2.0)
 RISK_PERCENT = 0.02         # 单笔风控
-MAGIC_NUMBER = 99999        # 策略ID
-
-# 均线参数
-MA_PERIOD = 200             # 200均线定牛熊
-
-# --- ⏰ 时间过滤器 ---
-START_HOUR = 0              # 顺势策略可以适当放宽时间，或者涵盖欧盘美盘
-END_HOUR = 24               
+MAGIC_NUMBER = 99999        # 策略ID              
 # =======================================================
 
 last_traded_time = None
@@ -35,20 +28,17 @@ def get_latest_data():
 def calculate_signal(df):
     # 1. 计算指标
     # ATR
-    df['h-l'] = df['high'] - df['low']
-    df['h-pc'] = abs(df['high'] - df['close'].shift(1))
-    df['l-pc'] = abs(df['low'] - df['close'].shift(1))
-    df['tr'] = df[['h-l', 'h-pc', 'l-pc']].max(axis=1)
-    df['atr'] = df['tr'].rolling(window=14).mean()
+    df['atr'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=14)
 
     # 移动平均线 (Trend Filter)
-    df['sma'] = df['close'].rolling(window=MA_PERIOD).mean()
-
+    df['sma'] = talib.SMA(df['close'], timeperiod=MA_PERIOD)
+    # 计算 RSI (相对强弱指标)
+    df['rsi'] = talib.RSI(df['close'], timeperiod=14)
     # 唐奇安通道 (支撑/阻力)
     lookback = 20
     df['donchian_low'] = df['low'].shift(1).rolling(window=lookback).min()
     df['donchian_high'] = df['high'].shift(1).rolling(window=lookback).max()
-
+    df['englufing'] = talib.CDLENGULFING(df['open'], df['high'], df['low'], df['close'])
     # 2. 锁定K线
     signal_candle = df.iloc[-2] # 刚收盘的那根
     prev_candle = df.iloc[-3]   # 前一根
@@ -58,18 +48,9 @@ def calculate_signal(df):
     # --- 信号逻辑 ---
     
     # 公共条件：吞没形态
-    # 看涨吞没: 前阴，后阳，后开<前收，后收>前开
-    engulfing_bull = (prev_candle['close'] < prev_candle['open']) and \
-                     (signal_candle['close'] > signal_candle['open']) and \
-                     (signal_candle['open'] <= prev_candle['close']) and \
-                     (signal_candle['close'] >= prev_candle['open'])
-
-    # 看跌吞没: 前阳，后阴，后开>前收，后收<前开
-    engulfing_bear = (prev_candle['close'] > prev_candle['open']) and \
-                     (signal_candle['close'] < signal_candle['open']) and \
-                     (signal_candle['open'] >= prev_candle['close']) and \
-                     (signal_candle['close'] <= prev_candle['open'])
-
+    pattern_value = df['englufing'].iloc[-2]
+    engulfing_bull = pattern_value == 100
+    engulfing_bear = pattern_value == -100
     # 信号类型：0=无，1=买，-1=卖
     signal_type = 0
     key_level = 0.0

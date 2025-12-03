@@ -1,0 +1,13 @@
+# 忽略 Python 编译文件
+__pycache__/
+*.py[cod]
+
+# 忽略打包生成的元数据 (Crucial!)
+*.egg-info/
+build/
+dist/
+
+# 忽略本地环境设置
+.env
+.venv/
+env/
